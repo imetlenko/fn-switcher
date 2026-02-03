@@ -18,6 +18,7 @@ install: build
 	@echo "3. Run: fn-switcher"
 	@echo ""
 	@echo "For autostart run: make install-agent"
+	make install-agent
 
 uninstall: uninstall-agent
 	sudo rm -f $(INSTALL_PATH)/$(BINARY_NAME)

@@ -1,0 +1,32 @@
+version: 2
+
+builds:
+  - id: fn-switcher
+    main: .
+    binary: fn-switcher
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X main.revision={{.Tag}}-{{.ShortCommit}}-{{.CommitDate}}
+
+archives:
+  - id: fn-switcher
+    builds:
+      - fn-switcher
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+
+brews:
+  - repository:
+      owner: imetlenko
+      name: homebrew-apps
+    directory: Formula
+    homepage: https://github.com/imetlenko/fn-switcher
+    description: Instantly switches keyboard layout when you press the Fn (Globe) key — without the annoying macOS popup.
+    license: MIT
