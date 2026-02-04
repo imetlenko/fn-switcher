@@ -16,8 +16,6 @@ builds:
 
 archives:
   - id: fn-switcher
-    builds:
-      - fn-switcher
     name_template: >-
       {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
 
@@ -34,9 +32,23 @@ brews:
       keep_alive true
       log_path var/"log/fn-switcher.log"
       error_log_path var/"log/fn-switcher.error.log"
+    test: |
+      system "#{bin}/fn-switcher", "--version"
+    install: |
+      bin.install "fn-switcher"
     post_install: |
-      ohai "To start fn-switcher now and on login:"
-      ohai "  brew services start fn-switcher"
-      ohai ""
-      ohai "Make sure to grant Accessibility permissions in:"
-      ohai "  System Settings → Privacy & Security → Accessibility"
+      system "/usr/bin/xattr", "-dr", "com.apple.quarantine", "#{bin}/fn-switcher"
+    caveats: |
+      fn-switcher requires Accessibility permissions:
+        System Settings → Privacy & Security → Accessibility
+        Add: #{opt_bin}/fn-switcher
+
+      To start fn-switcher now and on login:
+        brew services start fn-switcher
+
+      To start now and on login:
+        brew services start fn-switcher
+
+      To specify layouts, create a config or use flags:
+              fn-switcher -l1 com.apple.keylayout.ABC -l2 com.apple.keylayout.Russian
+    skip_upload: auto
