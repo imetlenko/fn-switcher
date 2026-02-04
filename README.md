@@ -25,14 +25,15 @@ This tool:
 ### Homebrew (Recommended)
 
 ```bash
-brew tap anomalyco/homebrew-fn-switcher
-brew install fn-switcher
+brew tap imetlenko/apps/fn-switcher -- ?
+brew install imetlenko/apps/fn-switcher
+brew services start fn-switcher
 ```
 
 ### From source
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/fn-switcher.git
+git clone https://github.com/imetlenko/fn-switcher.git
 cd fn-switcher
 make build
 sudo make install

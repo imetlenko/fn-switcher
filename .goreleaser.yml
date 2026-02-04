@@ -29,3 +29,14 @@ brews:
     homepage: https://github.com/imetlenko/fn-switcher
     description: Instantly switches keyboard layout when you press the Fn (Globe) key — without the annoying macOS popup.
     license: MIT
+    service: |
+      run [opt_bin/"fn-switcher"]
+      keep_alive true
+      log_path var/"log/fn-switcher.log"
+      error_log_path var/"log/fn-switcher.error.log"
+    post_install: |
+      ohai "To start fn-switcher now and on login:"
+      ohai "  brew services start fn-switcher"
+      ohai ""
+      ohai "Make sure to grant Accessibility permissions in:"
+      ohai "  System Settings → Privacy & Security → Accessibility"

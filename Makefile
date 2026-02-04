@@ -18,7 +18,6 @@ install: build
 	@echo "3. Run: fn-switcher"
 	@echo ""
 	@echo "For autostart run: make install-agent"
-	make install-agent
 
 uninstall: uninstall-agent
 	sudo rm -f $(INSTALL_PATH)/$(BINARY_NAME)
@@ -46,7 +45,7 @@ install-agent:
 	@echo "LaunchAgent installed and loaded"
 
 uninstall-agent:
-	-launchctl unload $(PLIST_PATH) 2>/dev/null
+	launchctl unload $(PLIST_PATH) 2>/dev/null
 	rm -f $(PLIST_PATH)
 	@echo "LaunchAgent removed"
 
