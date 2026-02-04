@@ -12,7 +12,7 @@ builds:
       - arm64
       - amd64
     ldflags:
-      - -s -w -X main.revision={{.Tag}}-{{.ShortCommit}}-{{.CommitDate}}
+      - -s -w -X main.version={{.Version}} -X main.revision={{.Tag}}-{{.ShortCommit}}-{{.CommitDate}}
 
 archives:
   - id: fn-switcher
