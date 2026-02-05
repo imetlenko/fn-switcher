@@ -124,12 +124,12 @@ import (
 
 const (
 	fnKeyFlag = 0x800000 // NSEventModifierFlagFunction
-	version   = "0.0.1"
 )
 
 var (
 	buildDate string
 	commit    string
+	version   string
 )
 
 var fnPressed = false
@@ -185,6 +185,7 @@ func switchInputSource() {
 	}
 }
 
+// TODO: Поставить на вывод buildDate и commit
 func printUsage() {
 	fmt.Printf(`fn-switcher v%s - Fast Fn key input source switcher for macOS
 
