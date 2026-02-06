@@ -6,6 +6,8 @@ package main
 
 #include <CoreGraphics/CoreGraphics.h>
 #include <Carbon/Carbon.h>
+#include <stdlib.h>
+#include <string.h>
 
 extern void goKeyCallback(int keyCode, int flags);
 
@@ -80,26 +82,45 @@ static int selectInputSource(const char *sourceID) {
     return found ? 0 : -1;
 }
 
-// List all available input sources
-static void listInputSources() {
+// Get selectable keyboard layouts (com.apple.keylayout.* only), newline-separated
+static const char* getSelectableKeyboardLayouts() {
     CFArrayRef sources = TISCreateInputSourceList(NULL, false);
-    if (!sources) return;
+    if (!sources) return "";
 
+    static char buffer[4096];
+    buffer[0] = '\0';
+    int offset = 0;
+
+    CFStringRef prefix = CFSTR("com.apple.keylayout.");
     CFIndex count = CFArrayGetCount(sources);
 
     for (CFIndex i = 0; i < count; i++) {
         TISInputSourceRef source = (TISInputSourceRef)CFArrayGetValueAtIndex(sources, i);
-        CFStringRef sourceID = (CFStringRef)TISGetInputSourceProperty(source, kTISPropertyInputSourceID);
         CFBooleanRef selectable = (CFBooleanRef)TISGetInputSourceProperty(source, kTISPropertyInputSourceIsSelectCapable);
 
-        if (selectable && CFBooleanGetValue(selectable) && sourceID) {
-            char buffer[256];
-            CFStringGetCString(sourceID, buffer, sizeof(buffer), kCFStringEncodingUTF8);
-            printf("%s\n", buffer);
+        if (!selectable || !CFBooleanGetValue(selectable)) continue;
+
+        CFStringRef sourceID = (CFStringRef)TISGetInputSourceProperty(source, kTISPropertyInputSourceID);
+        if (!sourceID) continue;
+
+        if (!CFStringHasPrefix(sourceID, prefix)) continue;
+
+        char tmp[256];
+        CFStringGetCString(sourceID, tmp, sizeof(tmp), kCFStringEncodingUTF8);
+
+        int len = strlen(tmp);
+        if (offset + len + 2 > (int)sizeof(buffer)) break;
+
+        if (offset > 0) {
+            buffer[offset++] = '\n';
         }
+        memcpy(buffer + offset, tmp, len);
+        offset += len;
+        buffer[offset] = '\0';
     }
 
     CFRelease(sources);
+    return buffer;
 }
 
 // Wrapper for Go
@@ -119,11 +140,13 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 	"unsafe"
 )
 
 const (
-	fnKeyFlag = 0x800000 // NSEventModifierFlagFunction
+	fnKeyFlag      = 0x800000 // NSEventModifierFlagFunction
+	keylayoutPrefix = "com.apple.keylayout."
 )
 
 var (
@@ -132,12 +155,11 @@ var (
 	version   string
 )
 
-var fnPressed = false
-
-// Default layouts - can be changed via flags
 var (
-	layout1 = "com.apple.keylayout.ABC"
-	layout2 = "com.apple.keylayout.Russian"
+	fnPressed      = false
+	layouts        []string // ordered list of layouts
+	previousLayout string   // for MRU mode
+	cycleMode      bool     // false = MRU (default), true = cycle
 )
 
 //export goKeyCallback
@@ -166,18 +188,55 @@ func setLayout(layoutID string) error {
 	return nil
 }
 
+func getKeyboardLayouts() []string {
+	cstr := C.getSelectableKeyboardLayouts()
+	raw := C.GoString(cstr)
+	if raw == "" {
+		return nil
+	}
+	return strings.Split(raw, "\n")
+}
+
 func listLayouts() {
-	C.listInputSources()
+	for _, l := range getKeyboardLayouts() {
+		fmt.Println(l)
+	}
+}
+
+func findIndex(list []string, val string) int {
+	for i, v := range list {
+		if v == val {
+			return i
+		}
+	}
+	return -1
 }
 
 func switchInputSource() {
 	current := getCurrentLayout()
 
 	var target string
-	if current == layout1 {
-		target = layout2
+	if cycleMode {
+		idx := findIndex(layouts, current)
+		if idx == -1 {
+			target = layouts[0]
+		} else {
+			target = layouts[(idx+1)%len(layouts)]
+		}
 	} else {
-		target = layout1
+		// MRU mode
+		if previousLayout == "" || previousLayout == current {
+			// fallback: go to next in list
+			idx := findIndex(layouts, current)
+			if idx == -1 {
+				target = layouts[0]
+			} else {
+				target = layouts[(idx+1)%len(layouts)]
+			}
+		} else {
+			target = previousLayout
+		}
+		previousLayout = current
 	}
 
 	if err := setLayout(target); err != nil {
@@ -185,28 +244,35 @@ func switchInputSource() {
 	}
 }
 
-// TODO: Поставить на вывод buildDate и commit
 func printUsage() {
 	fmt.Printf(`fn-switcher v%s - Fast Fn key input source switcher for macOS
 
 Usage:
   fn-switcher [flags]           Start the switcher daemon
-  fn-switcher -list             List available input sources
+  fn-switcher -list             List available keyboard layouts
   fn-switcher -get              Show current input source
   fn-switcher -set <source_id>  Set input source
 
 Flags:
-  -l1 <source_id>   First layout (default: com.apple.keylayout.ABC)
-  -l2 <source_id>   Second layout (default: com.apple.keylayout.Russian)
-  -list             List all available input sources
+  -layouts <list>   Comma-separated list of layouts to switch between
+                    (default: auto-detect all com.apple.keylayout.* sources)
+                    Use short names without the com.apple.keylayout. prefix.
+  -cycle            Use cycle mode instead of MRU (most recently used)
+  -list             List all available keyboard layouts
   -get              Get current input source
   -set <source_id>  Set input source
   -version          Show version
   -help             Show this help
 
+Modes:
+  MRU (default)     Toggle between current and previous layout.
+  Cycle (-cycle)    Cycle through layouts in order.
+
 Examples:
-  fn-switcher                          # Start with default layouts (ABC <-> Russian)
-  fn-switcher -l1 com.apple.keylayout.US -l2 com.apple.keylayout.German
+  fn-switcher                                # Auto-detect layouts, MRU mode
+  fn-switcher -cycle                         # Auto-detect layouts, cycle mode
+  fn-switcher -layouts "ABC,Russian"         # Specific layouts, MRU mode
+  fn-switcher -cycle -layouts "ABC,Russian,Kaz"  # Specific layouts, cycle mode
   fn-switcher -list
   fn-switcher -get
   fn-switcher -set com.apple.keylayout.Russian
@@ -216,9 +282,9 @@ Note: Requires Accessibility permissions in System Settings.
 }
 
 func main() {
-	l1 := flag.String("l1", layout1, "First layout")
-	l2 := flag.String("l2", layout2, "Second layout")
-	list := flag.Bool("list", false, "List available input sources")
+	layoutsFlag := flag.String("layouts", "", "Comma-separated list of layouts (short names without com.apple.keylayout. prefix)")
+	cycle := flag.Bool("cycle", false, "Use cycle mode instead of MRU")
+	list := flag.Bool("list", false, "List available keyboard layouts")
 	get := flag.Bool("get", false, "Get current input source")
 	set := flag.String("set", "", "Set input source")
 	showVersion := flag.Bool("version", false, "Show version")
@@ -233,6 +299,12 @@ func main() {
 
 	if *showVersion {
 		fmt.Printf("fn-switcher v%s\n", version)
+		if commit != "" {
+			fmt.Printf("commit: %s\n", commit)
+		}
+		if buildDate != "" {
+			fmt.Printf("built:  %s\n", buildDate)
+		}
 		return
 	}
 
@@ -254,12 +326,53 @@ func main() {
 		return
 	}
 
-	// Update layouts from flags
-	layout1 = *l1
-	layout2 = *l2
+	cycleMode = *cycle
 
-	fmt.Printf("fn-switcher v%s started\n", version)
-	fmt.Printf("Layouts: %s <-> %s\n", layout1, layout2)
+	// Build layouts list
+	if *layoutsFlag != "" {
+		parts := strings.Split(*layoutsFlag, ",")
+		for _, p := range parts {
+			p = strings.TrimSpace(p)
+			if p == "" {
+				continue
+			}
+			if !strings.HasPrefix(p, keylayoutPrefix) {
+				p = keylayoutPrefix + p
+			}
+			layouts = append(layouts, p)
+		}
+	} else {
+		layouts = getKeyboardLayouts()
+	}
+
+	if len(layouts) < 2 {
+		available := getKeyboardLayouts()
+		fmt.Fprintln(os.Stderr, "Error: need at least 2 keyboard layouts to switch between.")
+		fmt.Fprintln(os.Stderr, "Available layouts:")
+		for _, l := range available {
+			fmt.Fprintf(os.Stderr, "  %s\n", l)
+		}
+		os.Exit(1)
+	}
+
+	// Initialize previousLayout for MRU mode
+	previousLayout = layouts[1]
+
+	mode := "MRU"
+	if cycleMode {
+		mode = "Cycle"
+	}
+
+	fmt.Printf("fn-switcher v%s", version)
+	if commit != "" {
+		fmt.Printf(" (%s)", commit)
+	}
+	if buildDate != "" {
+		fmt.Printf(" built %s", buildDate)
+	}
+	fmt.Println(" started")
+	fmt.Printf("Mode: %s\n", mode)
+	fmt.Printf("Layouts: %s\n", strings.Join(layouts, " -> "))
 	fmt.Printf("Current: %s\n", getCurrentLayout())
 	fmt.Println("Press Fn to switch. Ctrl+C to exit.")
 
