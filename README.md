@@ -25,7 +25,6 @@ This tool:
 ### Homebrew (Recommended)
 
 ```bash
-brew tap imetlenko/apps/fn-switcher -- ?
 brew install imetlenko/apps/fn-switcher
 brew services start fn-switcher
 ```
