@@ -37,7 +37,11 @@ brews:
     install: |
       bin.install "fn-switcher"
     post_install: |
-      system("/usr/bin/xattr", "-dr", "com.apple.quarantine", "#{bin}/fn-switcher") rescue nil
+      begin
+        system "/usr/bin/xattr", "-dr", "com.apple.quarantine", "#{bin}/fn-switcher"
+      rescue
+        opoo "Could not remove quarantine attribute. Run: sudo xattr -dr com.apple.quarantine #{bin}/fn-switcher"
+      end
     caveats: |
       fn-switcher requires Accessibility permissions:
         System Settings → Privacy & Security → Accessibility
