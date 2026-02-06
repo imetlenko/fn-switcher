@@ -36,13 +36,10 @@ brews:
       system "#{bin}/fn-switcher", "--version"
     install: |
       bin.install "fn-switcher"
-    post_install: |
-      begin
-        system "/usr/bin/xattr", "-dr", "com.apple.quarantine", "#{bin}/fn-switcher"
-      rescue
-        opoo "Could not remove quarantine attribute. Run: sudo xattr -dr com.apple.quarantine #{bin}/fn-switcher"
-      end
     caveats: |
+      After installing, remove the quarantine attribute:
+        sudo xattr -dr com.apple.quarantine #{opt_bin}/fn-switcher
+
       fn-switcher requires Accessibility permissions:
         System Settings → Privacy & Security → Accessibility
         Add: #{opt_bin}/fn-switcher
@@ -50,9 +47,6 @@ brews:
       To start fn-switcher now and on login:
         brew services start fn-switcher
 
-      To start now and on login:
-        brew services start fn-switcher
-
       To specify layouts, create a config or use flags:
-              fn-switcher -l1 com.apple.keylayout.ABC -l2 com.apple.keylayout.Russian
+        fn-switcher -l1 com.apple.keylayout.ABC -l2 com.apple.keylayout.Russian
     skip_upload: auto
