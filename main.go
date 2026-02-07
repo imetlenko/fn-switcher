@@ -143,14 +143,14 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 	"unsafe"
-
-	"github.com/hashicorp/hcl/hcl/fmtcmd"
 )
 
 const (
-	fnKeyFlag      = 0x800000 // NSEventModifierFlagFunction
-	keylayoutPrefix = "com.apple.keylayout."
+	fnKeyFlag         = 0x800000 // NSEventModifierFlagFunction
+	keylayoutPrefix   = "com.apple.keylayout."
+	longPressDuration = 300 * time.Millisecond
 )
 
 var (
@@ -161,6 +161,7 @@ var (
 
 var (
 	fnPressed      = false
+	fnPressTime    time.Time
 	layouts        []string // ordered list of layouts
 	previousLayout string   // for MRU mode
 	cycleMode      bool     // false = MRU (default), true = cycle
@@ -171,7 +172,16 @@ func goKeyCallback(keyCode C.int, flags C.int) {
 	fnNow := (int(flags) & fnKeyFlag) != 0
 
 	if fnNow && !fnPressed {
-		switchInputSource()
+		// Fn pressed down
+		if cycleMode {
+			switchInputSource(false)
+		} else {
+			fnPressTime = time.Now()
+		}
+	} else if !fnNow && fnPressed && !cycleMode {
+		// Fn released — MRU mode: check press duration
+		longPress := time.Since(fnPressTime) >= longPressDuration
+		switchInputSource(longPress)
 	}
 	fnPressed = fnNow
 }
@@ -286,7 +296,7 @@ func findIndex(list []string, val string) int {
 	return -1
 }
 
-func switchInputSource() {
+func switchInputSource(longPress bool) {
 	current := getCurrentLayout()
 
 	var target string
@@ -297,10 +307,18 @@ func switchInputSource() {
 		} else {
 			target = layouts[(idx+1)%len(layouts)]
 		}
+	} else if longPress {
+		// MRU long press: cycle to next in list
+		idx := findIndex(layouts, current)
+		if idx == -1 {
+			target = layouts[0]
+		} else {
+			target = layouts[(idx+1)%len(layouts)]
+		}
+		previousLayout = current
 	} else {
-		// MRU mode
+		// MRU short press: toggle with previous
 		if previousLayout == "" || previousLayout == current {
-			// fallback: go to next in list
 			idx := findIndex(layouts, current)
 			if idx == -1 {
 				target = layouts[0]
@@ -353,8 +371,9 @@ Configuration:
     FN_SWITCHER_CYCLE     true/1 or false/0
 
 Modes:
-  MRU (default)     Toggle between current and previous layout.
-  Cycle (-cycle)    Cycle through layouts in order.
+  MRU (default)     Short press: toggle between current and previous layout.
+                    Long press (>300ms): cycle to next layout in list.
+  Cycle (-cycle)    Cycle through layouts in order on each press.
 
 Examples:
   fn-switcher                                # Auto-detect layouts, MRU mode
