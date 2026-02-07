@@ -47,6 +47,7 @@ brews:
       To start fn-switcher now and on login:
         brew services start fn-switcher
 
-      To specify layouts, create a config or use flags:
-        fn-switcher -l1 com.apple.keylayout.ABC -l2 com.apple.keylayout.Russian
+      To configure layouts and mode, create a config file:
+        mkdir -p ~/.config/fn-switcher
+        echo '{"layouts": ["ABC", "Russian"], "cycle": true}' > ~/.config/fn-switcher/config.json
     skip_upload: auto

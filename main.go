@@ -137,11 +137,15 @@ static const char* getCurrentInputSourceString() {
 import "C"
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"unsafe"
+
+	"github.com/hashicorp/hcl/hcl/fmtcmd"
 )
 
 const (
@@ -201,6 +205,76 @@ func listLayouts() {
 	for _, l := range getKeyboardLayouts() {
 		fmt.Println(l)
 	}
+}
+
+type config struct {
+	Layouts []string `json:"layouts"`
+	Cycle   *bool    `json:"cycle,omitempty"`
+}
+
+func configFilePath() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".config", "fn-switcher", "config.json")
+}
+
+func loadConfigFile() (*config, error) {
+	path := configFilePath()
+	if path == "" {
+		return nil, nil
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	var cfg config
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return nil, fmt.Errorf("invalid config file %s: %w", path, err)
+	}
+	return &cfg, nil
+}
+
+func loadEnvVars() *config {
+	cfg := &config{}
+	hasAny := false
+
+	if val := os.Getenv("FN_SWITCHER_LAYOUTS"); val != "" {
+		parts := strings.Split(val, ",")
+		for _, p := range parts {
+			p = strings.TrimSpace(p)
+			if p != "" {
+				cfg.Layouts = append(cfg.Layouts, p)
+			}
+		}
+		if len(cfg.Layouts) > 0 {
+			hasAny = true
+		}
+	}
+
+	if val := os.Getenv("FN_SWITCHER_CYCLE"); val != "" {
+		switch strings.ToLower(val) {
+		case "true", "1":
+			b := true
+			cfg.Cycle = &b
+			hasAny = true
+		case "false", "0":
+			b := false
+			cfg.Cycle = &b
+			hasAny = true
+		}
+	}
+
+	if !hasAny {
+		return nil
+	}
+	return cfg
 }
 
 func findIndex(list []string, val string) int {
@@ -264,6 +338,20 @@ Flags:
   -version          Show version
   -help             Show this help
 
+Configuration:
+  fn-switcher uses layered configuration (highest priority first):
+    1. CLI flags        -layouts "ABC,Russian" -cycle
+    2. Environment      FN_SWITCHER_LAYOUTS=ABC,Russian FN_SWITCHER_CYCLE=true
+    3. Config file      ~/.config/fn-switcher/config.json
+    4. Defaults         Auto-detect layouts, MRU mode
+
+  Config file example (~/.config/fn-switcher/config.json):
+    {"layouts": ["ABC", "Russian"], "cycle": true}
+
+  Environment variables:
+    FN_SWITCHER_LAYOUTS   Comma-separated layout names (short names)
+    FN_SWITCHER_CYCLE     true/1 or false/0
+
 Modes:
   MRU (default)     Toggle between current and previous layout.
   Cycle (-cycle)    Cycle through layouts in order.
@@ -326,12 +414,57 @@ func main() {
 		return
 	}
 
-	cycleMode = *cycle
+	// Detect which CLI flags were explicitly passed
+	cliFlags := map[string]bool{}
+	flag.Visit(func(f *flag.Flag) { cliFlags[f.Name] = true })
 
-	// Build layouts list
-	if *layoutsFlag != "" {
+	// Load config layers: config file, then env vars
+	fileCfg, err := loadConfigFile()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: %v\n", err)
+	}
+	envCfg := loadEnvVars()
+
+	configPath := "" // track for startup banner
+	if fileCfg != nil {
+		configPath = configFilePath()
+	}
+
+	// Resolve cycle mode: CLI > env > config > default
+	if cliFlags["cycle"] {
+		cycleMode = *cycle
+	} else if envCfg != nil && envCfg.Cycle != nil {
+		cycleMode = *envCfg.Cycle
+	} else if fileCfg != nil && fileCfg.Cycle != nil {
+		cycleMode = *fileCfg.Cycle
+	}
+
+	// Resolve layouts: CLI > env > config > auto-detect
+	if cliFlags["layouts"] {
 		parts := strings.Split(*layoutsFlag, ",")
 		for _, p := range parts {
+			p = strings.TrimSpace(p)
+			if p == "" {
+				continue
+			}
+			if !strings.HasPrefix(p, keylayoutPrefix) {
+				p = keylayoutPrefix + p
+			}
+			layouts = append(layouts, p)
+		}
+	} else if envCfg != nil && len(envCfg.Layouts) > 0 {
+		for _, p := range envCfg.Layouts {
+			p = strings.TrimSpace(p)
+			if p == "" {
+				continue
+			}
+			if !strings.HasPrefix(p, keylayoutPrefix) {
+				p = keylayoutPrefix + p
+			}
+			layouts = append(layouts, p)
+		}
+	} else if fileCfg != nil && len(fileCfg.Layouts) > 0 {
+		for _, p := range fileCfg.Layouts {
 			p = strings.TrimSpace(p)
 			if p == "" {
 				continue
@@ -371,6 +504,9 @@ func main() {
 		fmt.Printf(" built %s", buildDate)
 	}
 	fmt.Println(" started")
+	if configPath != "" {
+		fmt.Printf("Config: %s\n", configPath)
+	}
 	fmt.Printf("Mode: %s\n", mode)
 	fmt.Printf("Layouts: %s\n", strings.Join(layouts, " -> "))
 	fmt.Printf("Current: %s\n", getCurrentLayout())

@@ -66,11 +66,14 @@ fn-switcher
 ## Usage
 
 ```bash
-# Start switcher with default layouts (ABC <-> Russian)
+# Start switcher (auto-detects layouts, MRU mode)
 fn-switcher
 
 # Use custom layouts
-fn-switcher -l1 com.apple.keylayout.US -l2 com.apple.keylayout.German
+fn-switcher -layouts "ABC,Russian"
+
+# Cycle mode with custom layouts
+fn-switcher -cycle -layouts "ABC,Russian,German"
 
 # List available input sources
 fn-switcher -list
@@ -83,6 +86,40 @@ fn-switcher -set com.apple.keylayout.Russian
 
 # Show help
 fn-switcher -help
+```
+
+## Configuration
+
+fn-switcher uses layered configuration (highest priority first):
+
+1. **CLI flags** — `-layouts "ABC,Russian" -cycle`
+2. **Environment variables** — `FN_SWITCHER_LAYOUTS`, `FN_SWITCHER_CYCLE`
+3. **Config file** — `~/.config/fn-switcher/config.json`
+4. **Defaults** — auto-detect all layouts, MRU mode
+
+### Config file (recommended for brew services)
+
+```bash
+mkdir -p ~/.config/fn-switcher
+cat > ~/.config/fn-switcher/config.json << 'EOF'
+{
+  "layouts": ["ABC", "Russian"],
+  "cycle": true
+}
+EOF
+```
+
+The config file is ideal when running as a brew service, since the service plist passes no flags and gets overwritten on upgrades.
+
+### Environment variables
+
+| Variable | Description | Example |
+|---|---|---|
+| `FN_SWITCHER_LAYOUTS` | Comma-separated layout names | `ABC,Russian` |
+| `FN_SWITCHER_CYCLE` | Enable cycle mode | `true` or `1` |
+
+```bash
+FN_SWITCHER_LAYOUTS="ABC,Russian" FN_SWITCHER_CYCLE=true fn-switcher
 ```
 
 ## Autostart
@@ -153,24 +190,17 @@ Common layouts:
 - `com.apple.keylayout.German` — German
 - `com.apple.keylayout.French` — French
 
-Then run with your layouts:
+Then configure your layouts (use short names without the `com.apple.keylayout.` prefix):
 
 ```bash
-fn-switcher -l1 com.apple.keylayout.US -l2 com.apple.keylayout.German
+# CLI flag
+fn-switcher -layouts "US,German"
+
+# Or config file (recommended for service use)
+echo '{"layouts": ["US", "German"]}' > ~/.config/fn-switcher/config.json
 ```
 
-For autostart with custom layouts, edit the plist:
-
-```xml
-<key>ProgramArguments</key>
-<array>
-    <string>/usr/local/bin/fn-switcher</string>
-    <string>-l1</string>
-    <string>com.apple.keylayout.US</string>
-    <string>-l2</string>
-    <string>com.apple.keylayout.German</string>
-</array>
-```
+> **Tip:** When running as a brew service, use the config file instead of editing the plist — the plist gets overwritten on brew upgrades.
 
 ## How it works
 
