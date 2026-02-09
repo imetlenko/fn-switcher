@@ -83,6 +83,9 @@ fn-switcher -layouts "ABC,Russian"
 # Cycle mode with custom layouts
 fn-switcher -cycle -layouts "ABC,Russian,German"
 
+# Enable Shift+Option as an additional trigger
+fn-switcher -shortcut "shift+option"
+
 # List available input sources
 fn-switcher -list
 
@@ -100,8 +103,8 @@ fn-switcher -help
 
 fn-switcher uses layered configuration (highest priority first):
 
-1. **CLI flags** — `-layouts "ABC,Russian" -cycle`
-2. **Environment variables** — `FN_SWITCHER_LAYOUTS`, `FN_SWITCHER_CYCLE`
+1. **CLI flags** — `-layouts "ABC,Russian" -cycle -shortcut "shift+option"`
+2. **Environment variables** — `FN_SWITCHER_LAYOUTS`, `FN_SWITCHER_CYCLE`, `FN_SWITCHER_SHORTCUT`
 3. **Config file** — `~/.config/fn-switcher/config.json`
 4. **Defaults** — auto-detect all layouts, MRU mode
 
@@ -112,7 +115,8 @@ A default config file is created automatically on first run at `~/.config/fn-swi
 ```json
 {
   "layouts": ["ABC", "Russian"],
-  "cycle": true
+  "cycle": true,
+  "shortcut": "shift+option"
 }
 ```
 
@@ -124,9 +128,10 @@ The config file is ideal when running as a brew service, since the service plist
 |---|---|---|
 | `FN_SWITCHER_LAYOUTS` | Comma-separated layout names | `ABC,Russian` |
 | `FN_SWITCHER_CYCLE` | Enable cycle mode | `true` or `1` |
+| `FN_SWITCHER_SHORTCUT` | Additional shortcut trigger | `shift+option` |
 
 ```bash
-FN_SWITCHER_LAYOUTS="ABC,Russian" FN_SWITCHER_CYCLE=true fn-switcher
+FN_SWITCHER_LAYOUTS="ABC,Russian" FN_SWITCHER_CYCLE=true FN_SWITCHER_SHORTCUT=shift+option fn-switcher
 ```
 
 ## Autostart
@@ -243,7 +248,8 @@ Each Fn press cycles through all layouts in order. Triggers instantly on key dow
 2. On Fn press, starts a 500ms timer (MRU mode) or switches immediately (Cycle mode)
 3. If Fn released before 500ms — MRU toggle with previous layout
 4. If timer fires while Fn still held — cycle to next layout
-5. Calls Carbon `TISSelectInputSource` API directly — no shell commands, no external dependencies
+5. Optionally, Shift+Option combo triggers the same switching logic (when enabled via `-shortcut "shift+option"`)
+6. Calls Carbon `TISSelectInputSource` API directly — no shell commands, no external dependencies
 
 ## Troubleshooting
 

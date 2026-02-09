@@ -145,8 +145,12 @@ import (
 
 const (
 	fnKeyFlag         = 0x800000 // NSEventModifierFlagFunction
+	shiftFlag         = 0x20000  // kCGEventFlagMaskShift
+	optionFlag        = 0x80000  // kCGEventFlagMaskAlternate
 	keylayoutPrefix   = "com.apple.keylayout."
 	longPressDuration = 500 * time.Millisecond
+	// Mask covering standard modifier keys: shift, control, option, command, fn (excludes caps lock and numpad)
+	modifierMask = shiftFlag | 0x40000 | optionFlag | 0x100000 | fnKeyFlag // shift, ctrl, option, cmd, fn
 )
 
 var (
@@ -156,16 +160,22 @@ var (
 )
 
 var (
-	fnPressed      = false
-	fnTimer        *time.Timer
-	layouts        []string
-	previousLayout string
-	cycleMode      bool
+	fnPressed          = false
+	fnTimer            *time.Timer
+	shortcutEnabled    = false
+	shiftOptionPressed = false
+	shiftOptionTimer   *time.Timer
+	layouts            []string
+	previousLayout     string
+	cycleMode          bool
 )
 
 //export goKeyCallback
 func goKeyCallback(keyCode C.int, flags C.int) {
-	fnNow := (int(flags) & fnKeyFlag) != 0
+	f := int(flags)
+
+	// Fn key handling (always active)
+	fnNow := (f & fnKeyFlag) != 0
 
 	if fnNow && !fnPressed {
 		if cycleMode {
@@ -181,6 +191,30 @@ func goKeyCallback(keyCode C.int, flags C.int) {
 		}
 	}
 	fnPressed = fnNow
+
+	// Shift+Option handling (only when enabled)
+	if !shortcutEnabled {
+		return
+	}
+
+	// Check if exactly Shift+Option are pressed (no other modifiers besides caps lock/numpad)
+	activeModifiers := f & modifierMask
+	shiftOptionNow := activeModifiers == (shiftFlag | optionFlag)
+
+	if shiftOptionNow && !shiftOptionPressed {
+		if cycleMode {
+			switchInputSource(false)
+		} else {
+			shiftOptionTimer = time.AfterFunc(longPressDuration, func() {
+				switchInputSource(true)
+			})
+		}
+	} else if !shiftOptionNow && shiftOptionPressed && !cycleMode {
+		if shiftOptionTimer != nil && shiftOptionTimer.Stop() {
+			switchInputSource(false)
+		}
+	}
+	shiftOptionPressed = shiftOptionNow
 }
 
 func getCurrentLayout() string {
@@ -215,8 +249,9 @@ func listLayouts() {
 }
 
 type config struct {
-	Layouts []string `json:"layouts"`
-	Cycle   *bool    `json:"cycle,omitempty"`
+	Layouts  []string `json:"layouts"`
+	Cycle    *bool    `json:"cycle,omitempty"`
+	Shortcut string   `json:"shortcut,omitempty"`
 }
 
 func configFilePath() string {
@@ -307,6 +342,11 @@ func loadEnvVars() *config {
 		}
 	}
 
+	if val := os.Getenv("FN_SWITCHER_SHORTCUT"); val != "" {
+		cfg.Shortcut = strings.ToLower(strings.TrimSpace(val))
+		hasAny = true
+	}
+
 	if !hasAny {
 		return nil
 	}
@@ -394,6 +434,8 @@ Flags:
                     (default: auto-detect all com.apple.keylayout.* sources)
                     Use short names without the com.apple.keylayout. prefix.
   -cycle            Use cycle mode instead of MRU (most recently used)
+  -shortcut <key>   Additional shortcut trigger (e.g., "shift+option")
+                    Fn always works; this adds an extra trigger.
   -list             List all available keyboard layouts
   -get              Get current input source
   -set <source_id>  Set input source
@@ -408,11 +450,12 @@ Configuration:
     4. Defaults         Auto-detect layouts, MRU mode
 
   Config file example (~/.config/fn-switcher/config.json):
-    {"layouts": ["ABC", "Russian"], "cycle": true}
+    {"layouts": ["ABC", "Russian"], "cycle": true, "shortcut": "shift+option"}
 
   Environment variables:
     FN_SWITCHER_LAYOUTS   Comma-separated layout names (short names)
     FN_SWITCHER_CYCLE     true/1 or false/0
+    FN_SWITCHER_SHORTCUT  Additional shortcut (e.g., "shift+option")
 
 Modes:
   MRU (default)     Short press (<500ms): toggle between current and previous layout.
@@ -420,10 +463,11 @@ Modes:
   Cycle (-cycle)    Cycle through layouts in order on each press (instant).
 
 Examples:
-  fn-switcher                                # Auto-detect layouts, MRU mode
-  fn-switcher -cycle                         # Auto-detect layouts, cycle mode
-  fn-switcher -layouts "ABC,Russian"         # Specific layouts, MRU mode
+  fn-switcher                                        # Auto-detect layouts, MRU mode
+  fn-switcher -cycle                                 # Auto-detect layouts, cycle mode
+  fn-switcher -layouts "ABC,Russian"                 # Specific layouts, MRU mode
   fn-switcher -cycle -layouts "ABC,Russian,Australian"  # Specific layouts, cycle mode
+  fn-switcher -shortcut "shift+option"               # Enable Shift+Option as extra trigger
   fn-switcher -list
   fn-switcher -get
   fn-switcher -set com.apple.keylayout.Russian
@@ -445,6 +489,7 @@ func printVersion() {
 func main() {
 	layoutsFlag := flag.String("layouts", "", "Comma-separated list of layouts (short names without com.apple.keylayout. prefix)")
 	cycle := flag.Bool("cycle", false, "Use cycle mode instead of MRU")
+	shortcut := flag.String("shortcut", "", "Additional shortcut trigger (e.g., \"shift+option\")")
 	list := flag.Bool("list", false, "List available keyboard layouts")
 	get := flag.Bool("get", false, "Get current input source")
 	set := flag.String("set", "", "Set input source")
@@ -506,6 +551,21 @@ func main() {
 		cycleMode = *fileCfg.Cycle
 	}
 
+	// Resolve shortcut: CLI > env > config > default (disabled)
+	var shortcutName string
+	if cliFlags["shortcut"] {
+		shortcutName = strings.ToLower(strings.TrimSpace(*shortcut))
+	} else if envCfg != nil && envCfg.Shortcut != "" {
+		shortcutName = envCfg.Shortcut
+	} else if fileCfg != nil && fileCfg.Shortcut != "" {
+		shortcutName = strings.ToLower(strings.TrimSpace(fileCfg.Shortcut))
+	}
+	if shortcutName == "shift+option" {
+		shortcutEnabled = true
+	} else if shortcutName != "" {
+		fmt.Fprintf(os.Stderr, "Warning: unknown shortcut %q (supported: \"shift+option\")\n", shortcutName)
+	}
+
 	// Resolve layouts: CLI > env > config > auto-detect
 	if cliFlags["layouts"] {
 		layouts = normalizeLayouts(strings.Split(*layoutsFlag, ","))
@@ -552,9 +612,18 @@ func main() {
 		fmt.Printf("Config: %s\n", configPath)
 	}
 	fmt.Printf("Mode: %s\n", mode)
+	if shortcutEnabled {
+		fmt.Println("Shortcut: Shift+Option")
+	} else {
+		fmt.Println("Shortcut: Fn only")
+	}
 	fmt.Printf("Layouts: %s\n", strings.Join(layouts, " -> "))
 	fmt.Printf("Current: %s\n", getCurrentLayout())
-	fmt.Println("Press Fn to switch. Ctrl+C to exit.")
+	if shortcutEnabled {
+		fmt.Println("Press Fn or Shift+Option to switch. Ctrl+C to exit.")
+	} else {
+		fmt.Println("Press Fn to switch. Ctrl+C to exit.")
+	}
 
 	C.startEventTap()
 }
