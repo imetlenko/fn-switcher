@@ -1,0 +1,53 @@
+version: 2
+
+builds:
+  - id: fn-switcher
+    main: .
+    binary: fn-switcher
+    env:
+      - CGO_ENABLED=1
+    goos:
+      - darwin
+    goarch:
+      - arm64
+      - amd64
+    ldflags:
+      - -s -w -X main.version={{.Version}} -X main.commit={{.ShortCommit}} -X main.buildDate={{.CommitDate}}
+
+archives:
+  - id: fn-switcher
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+
+brews:
+  - repository:
+      owner: imetlenko
+      name: homebrew-apps
+    directory: Formula
+    homepage: https://github.com/imetlenko/fn-switcher
+    description: Instantly switches keyboard layout when you press the Fn (Globe) key — without the annoying macOS popup.
+    license: MIT
+    service: |
+      run [opt_bin/"fn-switcher"]
+      keep_alive true
+      log_path var/"log/fn-switcher.log"
+      error_log_path var/"log/fn-switcher.error.log"
+    test: |
+      system "#{bin}/fn-switcher", "--version"
+    install: |
+      bin.install "fn-switcher"
+    caveats: |
+      After installing, remove the quarantine attribute:
+        sudo xattr -dr com.apple.quarantine #{opt_bin}/fn-switcher
+
+      fn-switcher requires Accessibility permissions:
+        System Settings → Privacy & Security → Accessibility
+        Add: #{opt_bin}/fn-switcher
+
+      To start fn-switcher now and on login:
+        brew services start fn-switcher
+
+      To configure layouts and mode, create a config file:
+        mkdir -p ~/.config/fn-switcher
+        echo '{"layouts": ["ABC", "Russian"], "cycle": true}' > ~/.config/fn-switcher/config.json
+    skip_upload: auto
