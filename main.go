@@ -577,8 +577,23 @@ func main() {
 		layouts = getKeyboardLayouts()
 	}
 
+	// Validate configured layouts against available system layouts
+	available := getKeyboardLayouts()
+	availableSet := make(map[string]bool, len(available))
+	for _, l := range available {
+		availableSet[l] = true
+	}
+	var validLayouts []string
+	for _, l := range layouts {
+		if availableSet[l] {
+			validLayouts = append(validLayouts, l)
+		} else {
+			fmt.Fprintf(os.Stderr, "Warning: layout %q is not available on this system, skipping\n", l)
+		}
+	}
+	layouts = validLayouts
+
 	if len(layouts) < 2 {
-		available := getKeyboardLayouts()
 		fmt.Fprintln(os.Stderr, "Error: need at least 2 keyboard layouts to switch between.")
 		fmt.Fprintln(os.Stderr, "Available layouts:")
 		for _, l := range available {
